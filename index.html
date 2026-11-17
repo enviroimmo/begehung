@@ -313,6 +313,15 @@ body.ne-open{overflow:hidden}
 .photo.cap-edit textarea.cap{height:120px;font-size:19px;line-height:1.45;padding:12px 14px;overflow:auto;background:#fff;border-top-color:#9fcac2}
 .photo.cap-edit .cap-done{display:flex;align-items:center;gap:8px;padding:6px 8px 8px 14px;border-top:1px solid var(--line);background:var(--surface-2)}
 
+/* ---------- archive ---------- */
+.arch-toggle{display:flex;justify-content:center;margin-top:22px}
+.arch-sec{margin-top:8px;padding-top:14px;border-top:1px dashed var(--line)}
+.arch-sec>h2{display:flex;align-items:center;gap:8px;margin:0 0 4px}
+.arch-sec>h2 .ico{width:18px;height:18px}
+.proj.archived{background:var(--surface-2);box-shadow:none;border-style:dashed}
+.proj.archived .pn{color:var(--muted)}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:99px;background:#e4e9ee;color:var(--muted);font-size:12px;font-weight:650;white-space:nowrap}
+
 </style>
 </head>
 <body>
@@ -508,6 +517,15 @@ const PLATFORM = {
   syncInfo: () => Cloud.badge(),
   onBadgeClick: () => Cloud.badgeClick(),
   homeCard: () => Cloud.card('home'),
+  archiveNote: (long) => Cloud.configured()
+    ? 'Blendet das Projekt auf der Startseite aus. Alles bleibt in OneDrive; auf diesem Gerät werden Pläne und Fotos gelöscht, sobald alles hochgeladen ist, und belegen keinen Speicher mehr. Zum Öffnen über „Archiv anzeigen“ wiederherstellen' + (long ? ' – dabei lädt die App die Dateien wieder herunter (Internet nötig).' : '.')
+    : 'Blendet das Projekt auf der Startseite aus. Ohne OneDrive-Abgleich bleiben die Dateien auf diesem Gerät gespeichert. Über „Archiv anzeigen“ lässt es sich wiederherstellen.',
+  archiveListNote: () => Cloud.configured()
+    ? 'Archivierte Projekte liegen vollständig in OneDrive und belegen auf diesem Gerät keinen Speicher. Zum Öffnen „Wiederherstellen“ tippen – die App lädt die Dateien dann wieder herunter (Internet nötig).'
+    : 'Zum Öffnen „Wiederherstellen“ tippen. Das Projekt erscheint dann wieder bei den Projekten.',
+  archiveToast: () => Cloud.configured() ? 'Projekt archiviert. Der Speicher auf diesem Gerät wird nach dem Abgleich freigegeben.' : 'Projekt archiviert. Unten auf der Startseite unter „Archiv anzeigen“ zu finden.',
+  archiveChanged: (pid, restored) => Cloud.archiveChanged(pid, restored),
+  restoreBlocked: (pid) => Cloud.restoreBlocked(pid),
   settingsCard: (p) => Cloud.card('project', p),
   noStorage: ['Speicher nicht verfügbar', 'Der Browser erlaubt dieser App keinen lokalen Speicher (z. B. im privaten Modus). Bitte die App normal in Chrome oder Edge öffnen.'],
   assetsHint: ['Der lokale Speicher ist nicht verfügbar.', 'Bitte die App normal (nicht im privaten Modus) in Chrome oder Edge öffnen.'],
@@ -1845,13 +1863,15 @@ function showHome() {
   const banner = RT.canWrite === false ? h('div', { class: 'banner' }, 'Du hast nur Lesezugriff auf diese App. Änderungen werden nicht gespeichert.') : null;
   setScreen(top, main, banner);
   const render = () => {
-    const ps = [...S.projects.values()].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    const all = [...S.projects.values()].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    const ps = all.filter((p) => !p.archived);
+    const arch = all.filter((p) => p.archived).sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
     if (!S.projectsLoaded) {
       list.replaceChildren(h('div', { class: 'empty' }, h('div', { class: 'spinner', style: { margin: '0 auto 12px' } }),
         S.projectsSlow ? 'Daten sind gerade nicht erreichbar – Verbindung prüfen.' : 'Projekte werden geladen …'));
       return;
     }
-    if (!ps.length) {
+    if (!all.length) {
       list.replaceChildren(
         h('div', { class: 'card empty', style: { marginTop: '18px' } },
           h('div', { class: 'big' }, 'Noch keine Projekte'),
@@ -1864,14 +1884,58 @@ function showHome() {
       );
       return;
     }
-    list.replaceChildren(h('div', { class: 'proj-grid' }, ps.map((p) => h('button', { class: 'proj', type: 'button', onclick: () => openProject(p.id) },
-      h('div', { class: 'pn' }, p.name || 'Ohne Namen'),
-      h('div', { class: 'muted' }, [p.objekt, p.adresse].filter(Boolean).join(' · ') || '—'),
-      h('div', { class: 'grow' }),
-      h('div', { class: 'row small muted' }, p.datum ? h('span', null, 'Begehung ' + fmtDay(p.datum)) : null, p.auftraggeber ? h('span', null, '· ' + p.auftraggeber) : null)))));
+    const showArch = lsGetSafe('begehung.showArchive') === '1';
+    const archBtn = arch.length ? h('div', { class: 'arch-toggle' },
+      btn(showArch ? 'Archiv ausblenden' : `Archiv anzeigen (${arch.length})`, {
+        icon: 'archive', kind: 'ghost', onClick: () => { lsSetSafe('begehung.showArchive', showArch ? null : '1'); render(); },
+      })) : null;
+    list.replaceChildren(
+      ps.length
+        ? h('div', { class: 'proj-grid' }, ps.map((p) => h('button', { class: 'proj', type: 'button', onclick: () => openProject(p.id) },
+          h('div', { class: 'pn' }, p.name || 'Ohne Namen'),
+          h('div', { class: 'muted' }, [p.objekt, p.adresse].filter(Boolean).join(' · ') || '—'),
+          h('div', { class: 'grow' }),
+          h('div', { class: 'row small muted' }, p.datum ? h('span', null, 'Begehung ' + fmtDay(p.datum)) : null, p.auftraggeber ? h('span', null, '· ' + p.auftraggeber) : null))))
+        : h('div', { class: 'card empty', style: { marginTop: '18px' } }, h('div', { class: 'big' }, 'Keine aktiven Projekte'), h('div', null, 'Lege ein neues Projekt an oder hole eines aus dem Archiv zurück.')),
+      archBtn,
+      showArch && arch.length ? h('div', { class: 'arch-sec' },
+        h('h2', null, icon('archive'), 'Archiv'),
+        h('div', { class: 'muted small' }, PLATFORM.archiveListNote()),
+        h('div', { class: 'proj-grid' }, arch.map((p) => h('div', { class: 'proj archived', role: 'group', onclick: () => askRestore(p) },
+          h('div', { class: 'row' }, h('div', { class: 'pn grow' }, p.name || 'Ohne Namen'), h('span', { class: 'chip' }, 'Archiviert')),
+          h('div', { class: 'muted' }, [p.objekt, p.adresse].filter(Boolean).join(' · ') || '—'),
+          h('div', { class: 'grow' }),
+          h('div', { class: 'row small muted' },
+            h('span', { class: 'grow' }, [p.datum ? 'Begehung ' + fmtDay(p.datum) : '', p.archivedAt ? 'archiviert ' + fmtDay(new Date(p.archivedAt).toISOString().slice(0, 10)) : ''].filter(Boolean).join(' · ')),
+            btn('Wiederherstellen', { icon: 'restore', sm: true, kind: 'primary', onClick: (e) => { e?.stopPropagation?.(); restoreProject(p); } })))))) : null,
+    );
   };
   render();
   App.cleanup.push(onData((k) => { if (k.has('projects')) { render(); updateLastBtn(); } }));
+}
+
+// ---------- archive ----------
+function lsGetSafe(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSetSafe(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* ignore */ } }
+async function archiveProject(p) {
+  const ok = await confirmBox(`„${p.name || 'Projekt'}“ archivieren?`, PLATFORM.archiveNote(true), 'Archivieren');
+  if (!ok) return;
+  patchDoc('projects/' + p.id, { archived: true, archivedAt: Date.now() });
+  showHome();
+  toast(PLATFORM.archiveToast(), 'ok', 6000);
+  PLATFORM.archiveChanged?.(p.id);
+}
+async function askRestore(p) {
+  const ok = await confirmBox(`„${p.name || 'Projekt'}“ ist archiviert`, 'Zum Öffnen das Projekt erst wiederherstellen. Es erscheint dann wieder bei den Projekten.', 'Wiederherstellen');
+  if (ok) restoreProject(p);
+}
+async function restoreProject(p) {
+  const why = PLATFORM.restoreBlocked?.(p.id);
+  if (why) { toast(why, 'error', 6000); return; }
+  patchDoc('projects/' + p.id, { archived: false, archivedAt: null });
+  PLATFORM.archiveChanged?.(p.id, true);
+  toast('Projekt wiederhergestellt.' + (PLATFORM.restoreHint ? ' ' + PLATFORM.restoreHint : ''), 'ok', 5000);
+  setTimeout(() => openProject(p.id, 'plan', { restored: true }), 50);
 }
 
 function projectDialog(existing) {
@@ -1921,11 +1985,13 @@ function projectDialog(existing) {
 // ======================================================================
 // Project screen with tabs
 // ======================================================================
-function openProject(pid, tab) {
+function openProject(pid, tab, opts = {}) {
   if (!S.projects.has(pid)) { toast('Projekt nicht gefunden.'); showHome(); return; }
+  if (S.projects.get(pid).archived && !opts.restored) { if (App.view !== 'home') showHome(); askRestore(S.projects.get(pid)); return; }
   App.reset();
   if (S.pid !== pid) openProjectData(pid);
   App.view = 'project';
+  App.openedAt = Date.now();
   const last = App.recall();
   const vs = viewStore(pid).cur;
   if (vs) { App.plan.planId = vs.planId; App.plan.page = vs.page || 0; }
@@ -1961,6 +2027,8 @@ function showTab(tab) {
   App.cleanup.push(onData((k) => {
     if (k.has('projects')) {
       if (!S.projects.has(S.pid) && S.projectsLoaded) { toast('Das Projekt wurde gelöscht.'); showHome(); return; }
+      const cur = S.projects.get(S.pid);
+      if (cur?.archived && (cur.archivedAt || 0) > (App.openedAt || 0)) { toast('Das Projekt wurde archiviert.', 'ok', 5000); showHome(); return; }
       setTitle();
     }
   }));
@@ -3474,6 +3542,10 @@ function renderSettingsTab(main) {
         h('div', { class: 'row', style: { marginTop: '10px' } }, btn('Sicherung exportieren (ZIP)', { icon: 'archive', onClick: () => exportBackup() }))),
       storageCard(),
       h('div', { class: 'card section' },
+        h('h2', null, 'Projekt archivieren'),
+        h('div', { class: 'row' }, h('div', { class: 'muted grow' }, PLATFORM.archiveNote()),
+          btn('Archivieren', { icon: 'archive', onClick: () => archiveProject(p) }))),
+      h('div', { class: 'card section' },
         h('h2', null, 'Projekt löschen'),
         h('div', { class: 'row' }, h('div', { class: 'muted grow' }, 'Löscht das Projekt mit allen Plänen, Räumen und Fotos endgültig.'),
           btn('Projekt löschen', { icon: 'trash', kind: 'danger', onClick: () => deleteProject(p) }))),
@@ -3606,7 +3678,8 @@ async function deleteProject(p) {
   const nR = S.rooms.size, nP = [...S.photos.values()].length;
   const ok = await confirmBox('Projekt endgültig löschen?', `„${p.name}“ mit ${S.plans.size} Plänen, ${nR} Räumen und ${nP} Fotos wird gelöscht. Dies kann nicht rückgängig gemacht werden.`, 'Endgültig löschen', true);
   if (!ok) return;
-  const assets = [p.logoAssetId, p.coverAssetId, ...[...S.plans.values()].map((x) => x.assetId), ...[...S.photos.values()].map((x) => x.assetId)].filter(Boolean);
+  const assets = [...new Set([p.logoAssetId, p.coverAssetId, ...[...S.plans.values()].map((x) => x.assetId),
+    ...[...S.photos.values()].flatMap((x) => [x.assetId, x.origAssetId, x.fullAssetId, x.fullEditedAssetId])].filter(Boolean))];
   for (const x of S.photos.values()) removeDoc(`projects/${p.id}/photos/${x.id}`);
   for (const x of S.rooms.values()) removeDoc(`projects/${p.id}/rooms/${x.id}`);
   for (const x of S.plans.values()) removeDoc(`projects/${p.id}/plans/${x.id}`);
@@ -5083,7 +5156,36 @@ const Cloud = {
     }
     st.lastSync = Date.now();
     await this.saveState(st);
+    if (LocalDB.raw(prefix)?.data?.archived) await this.evictProject(pid, st);
     return changedRemote;
+  },
+  // Archived project: everything stays in OneDrive, the files are removed from this device
+  // (only those that are safely uploaded). Texts and room data stay – they are tiny.
+  async evictProject(pid, st) {
+    if ([...PQ.items.values()].some((x) => x.pid === pid)) return; // photos still waiting
+    const refs = this.blobRefs(this.localDocs('projects/' + pid));
+    let n = 0, bytes = 0;
+    for (const id of refs.keys()) {
+      if (!st.blobs?.[id]?.odId) continue;
+      const rec = await Blobs.get(id);
+      if (!rec) continue;
+      bytes += rec.size || rec.blob?.size || 0;
+      await IDB.del('blobs', id);
+      n++;
+    }
+    if (!st.evicted) { st.evicted = true; await this.saveState(st); }
+    if (n) console.info(`Archiv: ${n} Dateien (${fmtBytes(bytes)}) von diesem Gerät entfernt`);
+  },
+  archiveChanged(pid, restored) {
+    const st = this.states.get(pid);
+    if (restored && st) { st.evicted = false; this.saveState(st); }
+    this.schedule(restored ? 300 : 800);
+  },
+  restoreBlocked(pid) {
+    const st = this.states.get(pid);
+    if (st?.evicted && !navigator.onLine) return 'Die Dateien dieses Projekts liegen nur noch in OneDrive. Zum Wiederherstellen wird eine Internetverbindung benötigt.';
+    if (st?.evicted && !this.signedIn()) return 'Zum Wiederherstellen bitte zuerst bei OneDrive anmelden.';
+    return '';
   },
   localDocs(prefix) {
     const out = {};
@@ -5133,6 +5235,7 @@ const Cloud = {
     try {
       const jobs = [];
       for (const st of this.states.values()) {
+        if (LocalDB.raw('projects/' + st.pid)?.data?.archived) continue; // archived: files stay in OneDrive only
         const refs = this.blobRefs(this.localDocs('projects/' + st.pid));
         for (const [id, ref] of refs) if (!ref.lazy && st.blobs?.[id]?.odId) jobs.push([ref.order, id]);
       }

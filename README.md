@@ -122,6 +122,7 @@ Berichte, die ohne Internet erstellt werden, legt die App beim nächsten Abgleic
 ### Gut zu wissen
 
 - **Gleichzeitiges Arbeiten:** Wenn PC und Tablet verschiedene Räume ändern, werden beide Änderungen zusammengeführt. Wird *derselbe* Raum auf beiden Geräten geändert, gewinnt die zuletzt gespeicherte Fassung.
+- **Projekte archivieren:** Reiter „Projekt“ → „Archivieren“. Das Projekt verschwindet von der Startseite; alles bleibt in OneDrive, und auf den Geräten werden Pläne und Fotos gelöscht, sobald sie hochgeladen sind. Unten auf der Startseite zeigt „Archiv anzeigen“ die archivierten Projekte; „Wiederherstellen“ holt eines zurück und lädt die Dateien wieder herunter (Internet nötig).
 - **Anmeldung erneuern:** Microsoft begrenzt die Anmeldung solcher Web-Apps auf 24 Stunden. Die App erneuert sie selbst, sobald sie mit Internet geöffnet wird: kurz zu Microsoft und zurück, ohne Eingabe. Voraussetzung: Bei der Microsoft-Anmeldung „Angemeldet bleiben?“ mit **Ja** beantworten. Verlangt Microsoft doch eine Eingabe (z. B. Authenticator nach Vorgabe der IT), zeigt die App „Anmeldung nötig“ und den Button „Neu anmelden“. Während du etwas eingibst, fotografierst oder zeichnest, springt die App nie weg. Deine Daten bleiben in der Zwischenzeit auf dem Gerät erhalten.
 - **Projekt löschen** verschiebt den OneDrive-Ordner in den OneDrive-Papierkorb. Von dort ist er wiederherstellbar.
 - **Daten aus der Claude-Version übernehmen:** Dort unter *Projekt → Sicherung exportieren (ZIP)*, hier auf der Startseite *Sicherung importieren*.
