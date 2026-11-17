@@ -260,6 +260,49 @@ textarea.notes{min-height:150px;font-size:16.5px;line-height:1.5;border:1.5px so
   .topbar .title{font-size:15px}
 }
 
+/* ---------- large writing field for notes ---------- */
+textarea.notes[readonly]{cursor:text;caret-color:transparent}
+.notes-sec>.h .btn{margin:-6px 0}
+body.ne-open{overflow:hidden}
+.notes-ed{position:fixed;left:0;right:0;top:0;height:100vh;height:100dvh;z-index:125;background:var(--surface);display:flex;flex-direction:column}
+.notes-ed .ne-top{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid #c9e3de;background:var(--primary-soft)}
+.notes-ed .ne-title{min-width:0}
+.notes-ed .ne-title .t{display:flex;align-items:center;gap:7px;font-weight:700;color:var(--primary);font-size:16.5px}
+.notes-ed .ne-title .t .ico{width:18px;height:18px}
+.notes-ed .ne-title .s{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notes-ed .ne-done{height:50px;padding:0 24px;font-size:16.5px;font-weight:650}
+.notes-ed .ne-body{flex:1;min-height:0;padding:12px 14px 8px;display:flex}
+.notes-full{flex:1;width:100%;resize:none;font-size:20px;line-height:1.6;border:1.5px solid #9fcac2;border-radius:var(--radius-sm);padding:14px 16px;background:#fff}
+.notes-full:focus{outline:2px solid var(--primary);outline-offset:0}
+.notes-ed .ne-foot{padding:0 14px 10px}
+
+/* ---------- drawing on photos ---------- */
+.photo .draw-btn{position:absolute;left:6px;bottom:6px;display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 10px;border-radius:99px;border:0;background:rgba(255,255,255,.94);color:var(--ink);font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.photo .draw-btn .ico{width:16px;height:16px}
+.photo .draw-btn.on{background:var(--primary);color:#fff}
+.btn.flip .ico{transform:scaleX(-1)}
+.draw-ed{position:fixed;inset:0;z-index:125;background:#11161d;color:#fff;display:flex;flex-direction:column;user-select:none;-webkit-user-select:none}
+.draw-ed .de-top{display:flex;align-items:center;gap:8px;padding:8px 12px}
+.draw-ed .de-title{font-weight:650;font-size:15.5px;opacity:.92}
+.draw-ed .btn:not(.primary){background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.22);color:#fff}
+.draw-ed .btn.ghost{background:transparent;border-color:transparent}
+.draw-ed .btn.on{background:rgba(255,255,255,.92);color:#11161d;border-color:#fff}
+.draw-ed .btn.primary{height:46px;padding:0 20px;font-weight:650}
+.draw-ed .de-stage{flex:1;min-height:0;position:relative;overflow:hidden;touch-action:none;background:#0b0f14}
+.draw-ed .de-wrap{position:absolute;left:0;top:0;transform-origin:0 0;box-shadow:0 2px 18px rgba(0,0,0,.5)}
+.draw-ed canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.draw-ed .de-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 12px 6px}
+.draw-ed .de-seg{display:flex;gap:6px;border:0;background:transparent}
+.draw-ed .de-colors,.draw-ed .de-widths{display:flex;gap:8px;align-items:center}
+.draw-ed .de-color{width:36px;height:36px;border-radius:50%;border:2px solid rgba(255,255,255,.35);cursor:pointer;padding:0}
+.draw-ed .de-color.on{border-color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.35)}
+.draw-ed .de-width{width:40px;height:36px;border-radius:var(--radius-sm);border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.draw-ed .de-width i{display:block;border-radius:50%;background:#fff}
+.draw-ed .de-width.on{background:rgba(255,255,255,.92)}
+.draw-ed .de-width.on i{background:#11161d}
+.draw-ed .de-hint{padding:0 12px 10px;opacity:.6}
+@media (max-width:640px){.draw-ed .de-tools{gap:10px}.draw-ed .de-title{display:none}}
+
 </style>
 </head>
 <body>
@@ -543,6 +586,9 @@ const ICONS = {
   tag: '<path d="M4 7V4h16v3M9 20h6M12 4v16"/>',
   restore: '<path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7.5V12l3 2"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
+  pen: '<path d="M3 17c2.5-4 4.5-5 6-2.5S12 18 14 13s3.5-6 7-8"/>',
+  arrow: '<path d="M5 19L19 5M19 5h-8M19 5v8"/>',
+  draw: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/><path d="M14 6l4 4"/>',
 };
 function icon(name) {
   return h('span', {
@@ -654,6 +700,16 @@ function modal({ title, body, actions = [], wide = false, onClose, closable = tr
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && _modals.length) { const m = _modals[_modals.length - 1]; if (m.closable) { e.preventDefault(); m.close(); } }
 });
+
+// Hardware back button (Android, installed app): closes a full-screen editor instead of leaving the app.
+function backGuard(onBack) {
+  if (PLATFORM.name !== 'pwa') return () => {};
+  let done = false;
+  const onPop = () => { if (done) return; done = true; window.removeEventListener('popstate', onPop); onBack(); };
+  try { history.pushState({ begehungEditor: Date.now() }, ''); } catch { return () => {}; }
+  window.addEventListener('popstate', onPop);
+  return () => { if (done) return; done = true; window.removeEventListener('popstate', onPop); try { history.back(); } catch { /* ignore */ } };
+}
 
 function confirmBox(title, text, okLabel = 'OK', danger = false) {
   return new Promise((res) => {
@@ -2504,9 +2560,11 @@ class RoomPanel {
     // custom fields
     this.fieldsBox = h('div', { class: 'fields' });
     // notes
-    this.notes = h('textarea', { class: 'notes', placeholder: 'Beobachtungen, Hinweise, Messwerte …', rows: 6 });
-    this.notes.addEventListener('input', () => { this.saveNotes(this.notes.value); this.growNotes(); });
-    this.notes.addEventListener('blur', () => this.saveNotes.flush(this.notes.value));
+    // The small field only shows the text. Tapping it opens the large writing field (editNotes).
+    this.notes = h('textarea', { class: 'notes', placeholder: 'Antippen, um Bemerkungen zu schreiben …', rows: 6, 'aria-label': 'Bemerkungen – antippen zum Schreiben' });
+    this.notes.readOnly = true;
+    this.notes.addEventListener('click', () => this.editNotes());
+    this.notes.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'F2') { e.preventDefault(); this.editNotes(); } });
     // defects
     this.mCount = h('span', { class: 'badge' });
     this.mList = h('div');
@@ -2516,8 +2574,9 @@ class RoomPanel {
     this.meta = h('div', { class: 'inspected' });
 
     const body = h('div', { class: 'panel-body' },
-      h('div', { class: 'psec notes-sec' }, h('div', { class: 'h' }, icon('edit'), 'Bemerkungen'), this.notes,
-        h('div', { class: 'small muted', style: { marginTop: '6px' } }, 'Tipp: Mit dem Stift direkt ins Feld schreiben – das Tablet wandelt die Handschrift in Text um. Oder per Mikrofon-Taste diktieren.')),
+      h('div', { class: 'psec notes-sec' }, h('div', { class: 'h' }, icon('edit'), 'Bemerkungen', h('span', { class: 'grow' }),
+        btn('Schreiben', { icon: 'full', sm: true, kind: 'ghost', title: 'Großes Schreibfeld öffnen', onClick: () => this.editNotes() })), this.notes,
+        h('div', { class: 'small muted', style: { marginTop: '6px' } }, 'Antippen öffnet ein großes Schreibfeld. Dort mit dem Stift schreiben – das Tablet wandelt die Handschrift in Text um – und mit „Fertig“ zurück.')),
       h('div', { class: 'psec' }, h('div', { class: 'h' }, 'Status'), this.statusSeg),
       h('div', { class: 'psec' }, h('div', { class: 'h' }, 'Zustand allgemein'), this.zustandSeg),
       h('div', { class: 'psec', 'data-sec': 'fields' }, h('div', { class: 'h' }, 'Erfassung'), this.fieldsBox),
@@ -2535,6 +2594,50 @@ class RoomPanel {
     this.refresh(true);
     if (!r) this.a.close();
   }
+  // ---------- large writing field for the notes ----------
+  editNotes() {
+    if (this.notesEd) { this.notesEd.ta.focus(); return; }
+    const r = this.room();
+    if (!r) return;
+    if (RT.canWrite === false) { toast('Nur Lesezugriff – Bemerkungen können nicht geändert werden.', 'error'); return; }
+    const ta = h('textarea', { class: 'notes-full', placeholder: 'Beobachtungen, Hinweise, Messwerte …', spellcheck: 'true', 'aria-label': 'Bemerkungen' });
+    ta.value = r.notes || '';
+    const start = ta.value;
+    ta.addEventListener('input', () => this.saveNotes(ta.value));
+    const sub = h('div', { class: 's' }, [roomTitle(r), roomSub(r)].filter(Boolean).join(' · '));
+    const ed = h('div', { class: 'notes-ed', role: 'dialog', 'aria-label': 'Bemerkungen bearbeiten' },
+      h('div', { class: 'ne-top' },
+        h('div', { class: 'grow ne-title' }, h('div', { class: 't' }, icon('edit'), 'Bemerkungen'), sub),
+        btn('Fertig', { icon: 'check', kind: 'primary', cls: 'ne-done', onClick: () => finish() })),
+      h('div', { class: 'ne-body' }, ta),
+      h('div', { class: 'ne-foot small muted' }, 'Mit dem Stift ins Feld schreiben – die Handschrift wird in Text umgewandelt. Alles wird laufend gespeichert.'));
+    const vv = window.visualViewport;
+    const fitVV = () => { if (!vv) return; ed.style.height = vv.height + 'px'; ed.style.top = vv.offsetTop + 'px'; };
+    const onKey = (e) => { if (e.key === 'Escape' && !_modals.length) { e.preventDefault(); e.stopPropagation(); finish(); } };
+    let releaseBack = () => {};
+    const finish = (fromBack) => {
+      if (!this.notesEd) return;
+      this.notesEd = null;
+      if (ta.value !== start) this.saveNotes.flush(ta.value);
+      vv?.removeEventListener('resize', fitVV); vv?.removeEventListener('scroll', fitVV);
+      document.removeEventListener('keydown', onKey, true);
+      if (!fromBack) releaseBack();
+      ed.remove();
+      document.body.classList.remove('ne-open');
+      this.notes.value = ta.value;
+      this.growNotes();
+    };
+    this.notesEd = { ta, finish };
+    document.body.append(ed);
+    document.body.classList.add('ne-open');
+    vv?.addEventListener('resize', fitVV); vv?.addEventListener('scroll', fitVV); fitVV();
+    document.addEventListener('keydown', onKey, true);
+    releaseBack = backGuard(() => finish(true));
+    try { ta.focus({ preventScroll: true }); } catch { ta.focus(); }
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    ta.scrollTop = ta.scrollHeight;
+  }
+  closeNotesEditor() { this.notesEd?.finish(); }
   growNotes() {
     const t = this.notes;
     if (!t.isConnected) { requestAnimationFrame(() => t.isConnected && this.growNotes()); return; }
@@ -2687,7 +2790,7 @@ class RoomPanel {
     const list = photosForRoom(this.roomId);
     this.pCount.textContent = list.length;
     if (!force && this.pGrid.contains(document.activeElement)) return;
-    const sig = list.map((p) => p.id + (p.pending ? 'p' : 'd') + (p.caption || '')).join('|');
+    const sig = list.map((p) => p.id + (p.pending ? 'p' : 'd') + (p.assetId || '') + (p.caption || '')).join('|');
     if (!force && sig === this.photoSig) return;
     this.photoSig = sig;
     this.pGrid.replaceChildren(...list.map((ph, i) => {
@@ -2700,10 +2803,14 @@ class RoomPanel {
         if (!img.dataset.retried && ph.assetId && PLATFORM.retryImg(img, ph.assetId)) { img.dataset.retried = '1'; return; }
         img.replaceWith(h('div', { class: 'small muted', style: { padding: '12px' } }, 'Bild nicht verfügbar'));
       });
+      const drawB = ph.pending ? null : h('button', {
+        type: 'button', class: 'draw-btn' + (ph.origAssetId ? ' on' : ''), title: ph.origAssetId ? 'Zeichnung bearbeiten' : 'In Foto zeichnen', 'aria-label': 'In Foto zeichnen',
+        onclick: (e) => { e.stopPropagation(); openPhotoDraw(ph, { onSaved: () => this.renderPhotos(true) }); },
+      }, icon('draw'), h('span', null, ph.origAssetId ? 'Bearbeitet' : 'Zeichnen'));
       return h('div', { class: 'photo' },
         h('div', { class: 'im', onclick: () => openLightbox(this.roomId, i) }, img,
           ph.pending ? h('span', { class: 'pend' }, 'wartet auf Upload') : null,
-          h('span', { class: 'num' }, i + 1)),
+          h('span', { class: 'num' }, i + 1), drawB),
         cap);
     }));
   }
@@ -2713,6 +2820,7 @@ async function deletePhoto(ph) {
   if (ph.pending) { await PQ.remove(ph.id); return; }
   removeDoc(`projects/${S.pid}/photos/${ph.id}`);
   if (ph.assetId) RT.assets?.delete(ph.assetId).catch(() => {});
+  if (ph.origAssetId && ph.origAssetId !== ph.assetId) RT.assets?.delete(ph.origAssetId).catch(() => {});
 }
 
 function openLightbox(roomId, index) {
@@ -2736,6 +2844,12 @@ function openLightbox(roomId, index) {
       btn('', { icon: 'left', alt: 'Vorheriges', onClick: () => { i--; show(); } }),
       btn('', { icon: 'right', alt: 'Nächstes', onClick: () => { i++; show(); } }),
       info,
+      btn('Zeichnen', {
+        icon: 'draw', onClick: () => {
+          const ph = photosForRoom(roomId)[i];
+          if (ph) openPhotoDraw(ph, { onSaved: () => setTimeout(show, 30) });
+        },
+      }),
       btn('Löschen', {
         icon: 'trash', onClick: async () => {
           const ph = photosForRoom(roomId)[i];
@@ -2754,6 +2868,380 @@ function openLightbox(roomId, index) {
   document.body.append(lb);
   document.addEventListener('keydown', onKey);
   show();
+}
+
+// ======================================================================
+// Drawing on photos (stylus / finger / mouse)
+// The original photo is kept (origAssetId). The drawn version is saved as a
+// new image (assetId), which the app, the report and OneDrive use.
+// Strokes are kept as vectors, so a drawing can be changed later.
+// ======================================================================
+const DRAW_COLORS = [['#e53935', 'Rot'], ['#ffd600', 'Gelb'], ['#43a047', 'Grün'], ['#1e88e5', 'Blau'], ['#111111', 'Schwarz'], ['#ffffff', 'Weiß']];
+const DRAW_WIDTHS = [[0.0035, 'Dünn'], [0.007, 'Mittel'], [0.013, 'Dick']];
+const DRAW_PREF_KEY = 'begehung.draw';
+
+function encodePts(pts) { return pts.map(([x, y]) => Math.round(x * 10000) + ',' + Math.round(y * 10000)).join(' '); }
+function decodePts(str) {
+  return String(str || '').split(' ').filter(Boolean).map((p) => { const [x, y] = p.split(','); return [(+x || 0) / 10000, (+y || 0) / 10000]; });
+}
+function strokePts(st) { return st.pts || (st._pts ||= decodePts(st.p)); }
+
+function drawStroke(ctx, st, W, H) {
+  const pts = strokePts(st);
+  if (!pts.length) return;
+  const lw = Math.max(1.5, (st.w || 0.007) * Math.max(W, H));
+  ctx.save();
+  ctx.strokeStyle = st.c || '#e53935';
+  ctx.fillStyle = st.c || '#e53935';
+  ctx.lineWidth = lw;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // light halo so the line stays visible on busy photos
+  ctx.shadowColor = (st.c === '#111111') ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.45)';
+  ctx.shadowBlur = Math.max(1, lw * 0.5);
+  const P = (p) => [p[0] * W, p[1] * H];
+  if (st.t === 'arrow') {
+    const [ax, ay] = P(pts[0]);
+    const [bx, by] = P(pts[pts.length - 1]);
+    const len = Math.hypot(bx - ax, by - ay);
+    if (len < 1) { ctx.restore(); return; }
+    const ang = Math.atan2(by - ay, bx - ax);
+    const head = Math.min(len * 0.5, lw * 4.2 + 6);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx - Math.cos(ang) * head * 0.7, by - Math.sin(ang) * head * 0.7);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx - head * Math.cos(ang - 0.42), by - head * Math.sin(ang - 0.42));
+    ctx.lineTo(bx - head * Math.cos(ang + 0.42), by - head * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.lineWidth = Math.max(1, lw * 0.35);
+    ctx.fill();
+    ctx.stroke();
+  } else if (pts.length === 1) {
+    const [x, y] = P(pts[0]);
+    ctx.beginPath(); ctx.arc(x, y, lw / 2, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.beginPath();
+    let [x0, y0] = P(pts[0]);
+    ctx.moveTo(x0, y0);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const [x1, y1] = P(pts[i]);
+      const [x2, y2] = P(pts[i + 1]);
+      ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+    }
+    const [xl, yl] = P(pts[pts.length - 1]);
+    ctx.lineTo(xl, yl);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+async function loadBitmap(blob) {
+  try { return await createImageBitmap(blob); }
+  catch {
+    return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = URL.createObjectURL(blob); });
+  }
+}
+
+async function openPhotoDraw(ph, { onSaved } = {}) {
+  if (!ph) return;
+  if (ph.pending) { toast('Das Foto wird gerade gespeichert – bitte gleich noch einmal versuchen.'); return; }
+  if (!RT.assets) { assetsUnavailable(); return; }
+  if (RT.canWrite === false) { toast('Nur Lesezugriff – Fotos können nicht bearbeitet werden.', 'error'); return; }
+  const origId = ph.origAssetId || ph.assetId;
+  let bmp;
+  const bb = busyBox('Foto wird geladen …');
+  try { bmp = await loadBitmap(await PLATFORM.fetchBlob(origId)); }
+  catch (e) { bb.close(); toast('Das Originalfoto ist auf diesem Gerät nicht verfügbar' + (e?.message ? ': ' + e.message : '.'), 'error', 6000); return; }
+  bb.close();
+  const W = bmp.width || bmp.naturalWidth, H = bmp.height || bmp.naturalHeight;
+  const strokes = (Array.isArray(ph.strokes) ? ph.strokes : []).map((s0) => ({ t: s0.t, c: s0.c, w: s0.w, pts: decodePts(s0.p) }));
+  const startSig = JSON.stringify(strokes.map((s0) => [s0.t, s0.c, s0.w, s0.pts.length]));
+  const redoStack = [];
+  let pref = {};
+  try { pref = JSON.parse(localStorage.getItem(DRAW_PREF_KEY) || '{}') || {}; } catch { /* ignore */ }
+  const st = { tool: pref.tool === 'arrow' ? 'arrow' : 'pen', color: DRAW_COLORS.some(([c]) => c === pref.color) ? pref.color : DRAW_COLORS[0][0], width: DRAW_WIDTHS.some(([w]) => w === pref.width) ? pref.width : DRAW_WIDTHS[1][0] };
+  const savePref = () => { try { localStorage.setItem(DRAW_PREF_KEY, JSON.stringify(st)); } catch { /* ignore */ } };
+
+  // ---------- canvases ----------
+  const base = h('canvas', { class: 'de-base' });
+  const live = h('canvas', { class: 'de-live' });
+  base.width = live.width = W; base.height = live.height = H;
+  const bctx = base.getContext('2d');
+  const lctx = live.getContext('2d');
+  const redraw = () => {
+    bctx.clearRect(0, 0, W, H);
+    bctx.drawImage(bmp, 0, 0, W, H);
+    for (const s0 of strokes) drawStroke(bctx, s0, W, H);
+  };
+  redraw();
+  const wrap = h('div', { class: 'de-wrap' }, base, live);
+  const stage = h('div', { class: 'de-stage' }, wrap);
+
+  // ---------- view (fit, zoom, pan) ----------
+  const view = { f: 1, z: 1, tx: 0, ty: 0 };
+  const layout = (keep) => {
+    const sw = stage.clientWidth || window.innerWidth, sh = stage.clientHeight || window.innerHeight - 140;
+    const f = Math.max(0.01, Math.min((sw - 16) / W, (sh - 16) / H));
+    if (!keep || !view.f) { view.z = 1; }
+    view.f = f;
+    wrap.style.width = W * f + 'px';
+    wrap.style.height = H * f + 'px';
+    clampView();
+    apply();
+  };
+  const clampView = () => {
+    const sw = stage.clientWidth, sh = stage.clientHeight;
+    const dw = W * view.f * view.z, dh = H * view.f * view.z;
+    view.tx = dw <= sw ? (sw - dw) / 2 : clamp(view.tx, sw - dw - 40, 40);
+    view.ty = dh <= sh ? (sh - dh) / 2 : clamp(view.ty, sh - dh - 40, 40);
+  };
+  const apply = () => {
+    wrap.style.transform = `translate(${view.tx}px, ${view.ty}px) scale(${view.z})`;
+    fitBtn.classList.toggle('hidden', view.z <= 1.001);
+  };
+  const zoomAt = (cx, cy, nz) => {
+    const r = stage.getBoundingClientRect();
+    const px = cx - r.left, py = cy - r.top;
+    nz = clamp(nz, 1, 8);
+    view.tx = px - (px - view.tx) * (nz / view.z);
+    view.ty = py - (py - view.ty) * (nz / view.z);
+    view.z = nz;
+    clampView(); apply();
+  };
+
+  // ---------- pointer handling ----------
+  let penSeen = false;
+  let cur = null; // stroke being drawn
+  const touches = new Map();
+  let gesture = null;
+  const norm = (e) => {
+    const r = live.getBoundingClientRect();
+    return [clamp((e.clientX - r.left) / r.width, 0, 1), clamp((e.clientY - r.top) / r.height, 0, 1)];
+  };
+  const minStep = () => 1.2 / (W * view.f * view.z);
+  const drawLive = () => {
+    lctx.clearRect(0, 0, W, H);
+    if (cur) drawStroke(lctx, cur, W, H);
+  };
+  const startStroke = (e) => {
+    cur = { t: st.tool, c: st.color, w: st.width, pts: [norm(e)], pid: e.pointerId };
+    drawLive();
+  };
+  const moveStroke = (e) => {
+    if (!cur) return;
+    const evs = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [e];
+    for (const ev of (evs.length ? evs : [e])) {
+      const p = norm(ev);
+      if (cur.t === 'arrow') { cur.pts = [cur.pts[0], p]; continue; }
+      const last = cur.pts[cur.pts.length - 1];
+      if (Math.hypot(p[0] - last[0], p[1] - last[1]) >= minStep()) cur.pts.push(p);
+    }
+    drawLive();
+  };
+  const endStroke = (commit) => {
+    if (!cur) return;
+    const s0 = cur;
+    cur = null;
+    lctx.clearRect(0, 0, W, H);
+    if (!commit) return;
+    if (s0.t === 'arrow') {
+      if (s0.pts.length < 2) return;
+      const [a, b] = s0.pts;
+      if (Math.hypot((b[0] - a[0]) * W, (b[1] - a[1]) * H) < 8) return;
+    }
+    delete s0.pid;
+    strokes.push(s0);
+    redoStack.length = 0;
+    drawStroke(bctx, s0, W, H);
+    updateButtons();
+  };
+  const startGesture = () => {
+    const pts = [...touches.values()];
+    if (pts.length >= 2) {
+      const [a, b] = pts;
+      gesture = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, z0: view.z, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, tx0: view.tx, ty0: view.ty };
+    } else if (pts.length === 1) {
+      gesture = { kind: 'pan', x0: pts[0].x, y0: pts[0].y, tx0: view.tx, ty0: view.ty };
+    } else gesture = null;
+  };
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'pen') penSeen = true;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault();
+    try { stage.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (e.pointerType === 'touch') {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (cur && cur.touch) {
+        // a second finger turns the touch stroke into a zoom gesture
+        endStroke(false);
+      }
+      if (cur) return; // pen is drawing – ignore the palm
+      if (penSeen || touches.size > 1) { startGesture(); return; }
+      startStroke(e); cur.touch = true;
+      return;
+    }
+    if (cur) endStroke(true);
+    startStroke(e);
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
+      touches.get(e.pointerId).x = e.clientX; touches.get(e.pointerId).y = e.clientY;
+      if (cur && cur.touch && cur.pid === e.pointerId) { moveStroke(e); return; }
+      if (!gesture) return;
+      const pts = [...touches.values()];
+      if (gesture.kind === 'pinch' && pts.length >= 2) {
+        const [a, b] = pts;
+        const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+        const nz = clamp(gesture.z0 * d / gesture.d0, 1, 8);
+        const r = stage.getBoundingClientRect();
+        const px0 = gesture.cx - r.left, py0 = gesture.cy - r.top;
+        view.z = nz;
+        view.tx = (cx - r.left) - (px0 - gesture.tx0) * (nz / gesture.z0);
+        view.ty = (cy - r.top) - (py0 - gesture.ty0) * (nz / gesture.z0);
+        clampView(); apply();
+      } else if (gesture.kind === 'pan' && pts.length === 1) {
+        view.tx = gesture.tx0 + (pts[0].x - gesture.x0);
+        view.ty = gesture.ty0 + (pts[0].y - gesture.y0);
+        clampView(); apply();
+      }
+      return;
+    }
+    if (cur && cur.pid === e.pointerId) moveStroke(e);
+  });
+  const up = (e, cancel) => {
+    if (e.pointerType === 'touch') {
+      touches.delete(e.pointerId);
+      if (cur && cur.touch && cur.pid === e.pointerId) { endStroke(!cancel); return; }
+      startGesture();
+      return;
+    }
+    if (cur && cur.pid === e.pointerId) endStroke(!cancel);
+  };
+  stage.addEventListener('pointerup', (e) => up(e, false));
+  stage.addEventListener('pointercancel', (e) => up(e, true));
+  stage.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, view.z * Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+  stage.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ---------- toolbar ----------
+  const toolBtns = {
+    pen: btn('Stift', { icon: 'pen', sm: true, onClick: () => setTool('pen') }),
+    arrow: btn('Pfeil', { icon: 'arrow', sm: true, onClick: () => setTool('arrow') }),
+  };
+  const setTool = (t) => { st.tool = t; savePref(); for (const [k, b] of Object.entries(toolBtns)) b.classList.toggle('on', k === t); };
+  const colorBtns = DRAW_COLORS.map(([c, name]) => h('button', {
+    type: 'button', class: 'de-color', title: name, 'aria-label': 'Farbe ' + name, style: { background: c },
+    onclick: () => { st.color = c; savePref(); markColors(); },
+  }));
+  const markColors = () => colorBtns.forEach((b, i) => b.classList.toggle('on', DRAW_COLORS[i][0] === st.color));
+  const widthBtns = DRAW_WIDTHS.map(([w, name], i) => h('button', {
+    type: 'button', class: 'de-width', title: name, 'aria-label': 'Strichstärke ' + name,
+    onclick: () => { st.width = w; savePref(); markWidths(); },
+  }, h('i', { style: { width: 6 + i * 6 + 'px', height: 6 + i * 6 + 'px' } })));
+  const markWidths = () => widthBtns.forEach((b, i) => b.classList.toggle('on', DRAW_WIDTHS[i][0] === st.width));
+  const undoBtn = btn('', { icon: 'undo', alt: 'Rückgängig', onClick: () => { if (!strokes.length) return; redoStack.push(strokes.pop()); redraw(); updateButtons(); } });
+  const redoBtn = btn('', { icon: 'undo', cls: 'flip', alt: 'Wiederholen', onClick: () => { if (!redoStack.length) return; strokes.push(redoStack.pop()); redraw(); updateButtons(); } });
+  const clearBtn = btn('Alles entfernen', {
+    icon: 'trash', sm: true, kind: 'ghost', onClick: async () => {
+      if (!strokes.length) return;
+      if (!(await confirmBox('Alle Zeichnungen entfernen?', 'Das Foto wird wieder wie im Original angezeigt, wenn du danach „Fertig“ tippst.', 'Entfernen', true))) return;
+      redoStack.push(...strokes.splice(0).reverse());
+      redraw(); updateButtons();
+    },
+  });
+  const fitBtn = btn('', { icon: 'fit', alt: 'Ganzes Foto zeigen', cls: 'hidden', onClick: () => { view.z = 1; clampView(); apply(); } });
+  const updateButtons = () => {
+    undoBtn.disabled = !strokes.length;
+    redoBtn.disabled = !redoStack.length;
+    clearBtn.disabled = !strokes.length;
+  };
+  const hint = h('div', { class: 'de-hint small' }, 'Mit dem Stift zeichnen · zwei Finger: zoomen und verschieben');
+
+  const ed = h('div', { class: 'draw-ed', role: 'dialog', 'aria-label': 'Foto bearbeiten' },
+    h('div', { class: 'de-top' },
+      btn('', { icon: 'x', alt: 'Abbrechen', onClick: () => cancel() }),
+      h('div', { class: 'grow de-title' }, 'In Foto zeichnen'),
+      fitBtn, undoBtn, redoBtn,
+      btn('Fertig', { icon: 'check', kind: 'primary', onClick: () => save() })),
+    stage,
+    h('div', { class: 'de-tools' },
+      h('div', { class: 'seg de-seg' }, toolBtns.pen, toolBtns.arrow),
+      h('div', { class: 'de-colors' }, colorBtns),
+      h('div', { class: 'de-widths' }, widthBtns),
+      h('div', { class: 'grow' }),
+      clearBtn),
+    hint);
+  setTool(st.tool); markColors(); markWidths(); updateButtons();
+
+  const onKey = (e) => {
+    if (_modals.length) return;
+    if (e.key === 'Escape' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); (e.shiftKey ? redoBtn : undoBtn).click(); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redoBtn.click(); }
+  };
+  const onResize = () => layout(true);
+  let releaseBack = () => {};
+  let closed = false;
+  const close = (fromBack) => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('resize', onResize);
+    if (!fromBack) releaseBack();
+    ed.remove();
+    try { bmp.close?.(); } catch { /* ignore */ }
+  };
+  const changed = () => JSON.stringify(strokes.map((s0) => [s0.t, s0.c, s0.w, s0.pts.length])) !== startSig;
+  const cancel = async (fromBack) => {
+    if (changed() && !(await confirmBox('Zeichnung verwerfen?', 'Die Änderungen an diesem Foto werden nicht gespeichert.', 'Verwerfen', true))) {
+      if (fromBack) releaseBack = backGuard(() => cancel(true));
+      return;
+    }
+    close(fromBack);
+  };
+  const save = async () => {
+    if (!changed()) { close(); return; }
+    const path = `projects/${S.pid}/photos/${ph.id}`;
+    const oldComposite = ph.origAssetId && ph.assetId !== ph.origAssetId ? ph.assetId : null;
+    const bb2 = busyBox('Foto wird gespeichert …');
+    try {
+      if (!strokes.length) {
+        // back to the original photo
+        patchDoc(path, { assetId: origId, origAssetId: null, strokes: null, editedAt: null, w: W, h: H });
+      } else {
+        const out = document.createElement('canvas');
+        out.width = W; out.height = H;
+        const octx = out.getContext('2d');
+        octx.drawImage(bmp, 0, 0, W, H);
+        for (const s0 of strokes) drawStroke(octx, s0, W, H);
+        const blob = await new Promise((r) => out.toBlob(r, 'image/jpeg', 0.86));
+        if (!blob) throw new Error('Bild konnte nicht erzeugt werden.');
+        const res = await withTimeout(RT.assets.upload(blob, { type: 'image/jpeg' }), 120000, 'Speichern dauert zu lange');
+        const enc = strokes.map((s0) => ({ t: s0.t, c: s0.c, w: s0.w, p: encodePts(s0.pts) }));
+        patchDoc(path, { assetId: res.id, origAssetId: origId, strokes: enc, editedAt: Date.now(), w: W, h: H, bytes: res.sizeBytes || blob.size });
+      }
+      if (oldComposite) RT.assets.delete(oldComposite).catch(() => {});
+      bb2.close();
+      close();
+      toast(strokes.length ? 'Zeichnung gespeichert.' : 'Originalfoto wiederhergestellt.', 'ok');
+      onSaved?.();
+    } catch (e) {
+      bb2.close();
+      console.error(e);
+      toast('Speichern fehlgeschlagen: ' + (e?.message || e?.code || e), 'error', 6000);
+    }
+  };
+
+  document.body.append(ed);
+  document.addEventListener('keydown', onKey, true);
+  window.addEventListener('resize', onResize);
+  releaseBack = backGuard(() => cancel(true));
+  layout(false);
+  requestAnimationFrame(() => layout(false));
 }
 
 // ======================================================================
@@ -3838,6 +4326,13 @@ async function exportBackup() {
         zip.file(path, b);
         files[ph.assetId] = { path, type: 'image/jpeg' };
       } catch { /* skip missing */ }
+      if (ph.origAssetId && ph.origAssetId !== ph.assetId) {
+        try {
+          const path = `fotos/${ph.id}-original.jpg`;
+          zip.file(path, await PLATFORM.fetchBlob(ph.origAssetId));
+          files[ph.origAssetId] = { path, type: 'image/jpeg' };
+        } catch { /* original missing: the drawing can no longer be changed */ }
+      }
     }
     for (const pend of [...PQ.items.values()].filter((x) => x.pid === p.id)) {
       const key = 'pending:' + pend.id;
@@ -3924,6 +4419,10 @@ async function importBackup(files) {
       rest.roomId = roomIds.get(ph.roomId);
       rest.assetId = await up(ph.assetId);
       if (!rest.assetId) continue;
+      if (rest.origAssetId) {
+        rest.origAssetId = await up(ph.origAssetId);
+        if (!rest.origAssetId) { delete rest.origAssetId; delete rest.strokes; }
+      }
       docs.push([`projects/${pid}/photos/${uid('ph')}`, rest]);
     }
     saveDoc('projects/' + pid, { ...proj, updatedAt: Date.now() });
@@ -4223,6 +4722,7 @@ const Cloud = {
       const rootId = await this.ensureRoot();
       const folders = await this.listFolders(rootId);
       const folderIds = new Set(folders.map((f) => f.id));
+      await this.processDeletes(); // first, so a replaced photo can keep its file name
       for (const pid of LocalDB.projectIds()) changedRemote = (await this.syncProject(pid, folderIds)) || changedRemote;
       const known = new Set([...this.states.values()].map((s) => s.folderId));
       for (const f of folders) if (!known.has(f.id)) changedRemote = (await this.pullFolder(f)) || changedRemote;
@@ -4267,7 +4767,14 @@ const Cloud = {
       const room = docs['rooms/' + roomId]?.data;
       const rn = safeFile([room?.raumnr, room?.raumname].filter(Boolean).join(' ') || 'Raum');
       list.sort((a, b) => (a.ts || 0) - (b.ts || 0));
-      list.forEach((ph, i) => refs.set(ph.assetId, { dest: 'photos', name: `${rn} - Foto ${i + 1}.jpg`, order: 2 }));
+      list.forEach((ph, i) => {
+        const nm = `${rn} - Foto ${i + 1}`;
+        if (ph.origAssetId && ph.origAssetId !== ph.assetId) {
+          // drawn on: keep the original and put the marked-up version next to it
+          refs.set(ph.origAssetId, { dest: 'photos', name: nm + '.jpg', order: 2 });
+          refs.set(ph.assetId, { dest: 'photos', name: nm + ' (bearbeitet).jpg', order: 2 });
+        } else refs.set(ph.assetId, { dest: 'photos', name: nm + '.jpg', order: 2 });
+      });
     }
     return refs;
   },

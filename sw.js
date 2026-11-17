@@ -1,5 +1,5 @@
 // Service Worker: hält die App offline verfügbar und liefert lokal gespeicherte Dateien (Pläne, Fotos) aus.
-const CACHE = 'begehung-ef76e1a402';
+const CACHE = 'begehung-7b0c761b1d';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'config.js', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   'lib/pdf.min.mjs', 'lib/pdf.worker.min.mjs', 'lib/pdf-lib.min.js', 'lib/docx.iife.js', 'lib/jszip.min.js'];
 
