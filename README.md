@@ -103,20 +103,26 @@ Begehungs-App/
   Bürogebäude Musterstraße 12/
     begehung-daten.json          ← Daten der App (bitte nicht von Hand ändern)
     Pläne/grundriss-eg.pdf
+    Vorschaubilder/              ← verkleinerte Arbeitskopien für die App
     Begehungsdokumentation/      ← Berichte (PDF, Word, CSV)
       … Begehungsbericht 2026-11-07.pdf
-      Fotos/                     ← alle Einzelfotos, benannt nach Raum
+      Fotos/                     ← alle Einzelfotos in Originalqualität, benannt nach Raum
         0.01 Büro - Foto 1.jpg
+        0.01 Büro - Foto 1 (bearbeitet).jpg   ← mit Zeichnung, volle Größe
         0.01 Büro - Foto 2.jpg
         Titelbild.jpg
 ```
+
+Die Fotos im Ordner `Fotos` sind die unveränderten Kameradateien. Die App selbst arbeitet mit kleineren Kopien (`Vorschaubilder`), damit sie auf dem Tablet schnell bleibt. Nach dem Hochladen gibt die App den Speicher der großen Kameradatei auf dem Tablet wieder frei.
+
+Berichte, die ohne Internet erstellt werden, legt die App beim nächsten Abgleich automatisch in `Begehungsdokumentation` ab.
 
 **Dokumentation im eigenen Projektordner ablegen:** Im Reiter *Projekt → OneDrive → Ordner wählen …* kannst du einen beliebigen Ordner in deinem OneDrive wählen, z. B. euren Projektordner `Projekte/2026-012 Musterstraße`. Die App legt dort den Unterordner `Begehungsdokumentation` mit dem Ordner `Fotos` an. Bereits abgelegte Berichte und Fotos werden automatisch mit verschoben. Pläne und App-Daten bleiben im Ordner `Begehungs-App`.
 
 ### Gut zu wissen
 
 - **Gleichzeitiges Arbeiten:** Wenn PC und Tablet verschiedene Räume ändern, werden beide Änderungen zusammengeführt. Wird *derselbe* Raum auf beiden Geräten geändert, gewinnt die zuletzt gespeicherte Fassung.
-- **Anmeldung erneuern:** Microsoft begrenzt die Anmeldung solcher Web-Apps auf 24 Stunden. Danach zeigt die App „Anmeldung nötig“. Einmal „Neu anmelden“ tippen, meist ohne Passwort. Deine Daten bleiben in der Zwischenzeit auf dem Gerät erhalten.
+- **Anmeldung erneuern:** Microsoft begrenzt die Anmeldung solcher Web-Apps auf 24 Stunden. Die App erneuert sie selbst, sobald sie mit Internet geöffnet wird: kurz zu Microsoft und zurück, ohne Eingabe. Voraussetzung: Bei der Microsoft-Anmeldung „Angemeldet bleiben?“ mit **Ja** beantworten. Verlangt Microsoft doch eine Eingabe (z. B. Authenticator nach Vorgabe der IT), zeigt die App „Anmeldung nötig“ und den Button „Neu anmelden“. Während du etwas eingibst, fotografierst oder zeichnest, springt die App nie weg. Deine Daten bleiben in der Zwischenzeit auf dem Gerät erhalten.
 - **Projekt löschen** verschiebt den OneDrive-Ordner in den OneDrive-Papierkorb. Von dort ist er wiederherstellbar.
 - **Daten aus der Claude-Version übernehmen:** Dort unter *Projekt → Sicherung exportieren (ZIP)*, hier auf der Startseite *Sicherung importieren*.
 - **Stift-Eingabe:** Alle Textfelder sind normale Eingabefelder. Auf Samsung-Tablets mit S Pen kannst du direkt hineinschreiben, die Handschrift wird in Text umgewandelt. Die Einstellung heißt „S Pen zu Text“ (*Einstellungen → Erweiterte Funktionen → S Pen*). Mit Gboard ab Android 14 heißt sie „In Textfelder schreiben“.

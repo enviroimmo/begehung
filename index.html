@@ -198,7 +198,8 @@ textarea.notes{min-height:150px;font-size:16.5px;line-height:1.5;border:1.5px so
 .photos{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px}
 .photo{border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;background:var(--surface-2);display:flex;flex-direction:column}
 .photo .im{position:relative;aspect-ratio:4/3;background:#d9dde3;cursor:zoom-in}
-.photo img{width:100%;height:100%;object-fit:cover;display:block}
+.photo .im{overflow:hidden;min-height:0}
+.photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 .photo .pend{position:absolute;left:6px;top:6px;font-size:11px;background:rgba(0,0,0,.65);color:#fff;padding:2px 7px;border-radius:99px}
 .photo .num{position:absolute;right:6px;top:6px;font-size:11.5px;font-weight:700;background:rgba(255,255,255,.92);padding:1px 7px;border-radius:99px}
 .photo input{border:0;border-top:1px solid var(--line);border-radius:0;min-height:38px;font-size:13.5px;padding:6px 8px}
@@ -302,6 +303,15 @@ body.ne-open{overflow:hidden}
 .draw-ed .de-width.on i{background:#11161d}
 .draw-ed .de-hint{padding:0 12px 10px;opacity:.6}
 @media (max-width:640px){.draw-ed .de-tools{gap:10px}.draw-ed .de-title{display:none}}
+
+/* ---------- photo caption: grows while writing ---------- */
+.photo textarea.cap{display:block;width:100%;height:40px;min-height:40px;border:0;border-top:1px solid var(--line);border-radius:0;font-size:13.5px;line-height:1.35;padding:10px 8px 6px;resize:none;overflow:hidden;background:var(--surface);transition:height .15s ease}
+.photo textarea.cap:focus{outline:none}
+.photo .cap-done{display:none}
+.photo.cap-edit{grid-column:1/-1;border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft)}
+.photo.cap-edit .im{aspect-ratio:16/7}
+.photo.cap-edit textarea.cap{height:120px;font-size:19px;line-height:1.45;padding:12px 14px;overflow:auto;background:#fff;border-top-color:#9fcac2}
+.photo.cap-edit .cap-done{display:flex;align-items:center;gap:8px;padding:6px 8px 8px 14px;border-top:1px solid var(--line);background:var(--surface-2)}
 
 </style>
 </head>
@@ -455,7 +465,10 @@ const LocalDownloads = {
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 120000);
     if (S.pid && /^(pdf|docx|csv)$/.test(ext)) {
-      Cloud.uploadReport(S.pid, filename, blob).then((ok) => { if (ok) toast('Auch in OneDrive gespeichert (Begehungsdokumentation): ' + filename, 'ok', 5000); });
+      Cloud.uploadReport(S.pid, filename, blob).then((ok) => {
+        if (ok === true) toast('Auch in OneDrive gespeichert (Begehungsdokumentation): ' + filename, 'ok', 5000);
+        else if (ok === 'queued') toast('Gespeichert. In OneDrive wird die Datei abgelegt, sobald wieder eine Verbindung besteht.', 'ok', 6000);
+      });
     }
     return { status: 'saved' };
   },
@@ -469,6 +482,7 @@ const PLATFORM = {
   name: 'pwa',
   lib: { pdfjs: './lib/pdf.min.mjs', pdfjsWorker: './lib/pdf.worker.min.mjs', pdflib: './lib/pdf-lib.min.js', docx: './lib/docx.iife.js', jszip: './lib/jszip.min.js' },
   cachePlans: false,
+  keepOriginals: true, // photos are also kept in full camera quality (for the OneDrive folder)
   maxPlanMB: 100,
   async boot() {
     if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -739,6 +753,7 @@ function fileBtn(label, o = {}) {
   const inp = h('input', { type: 'file', accept: o.accept || null, multiple: !!o.multiple, capture: o.capture || null, class: 'file-overlay', 'aria-label': label || o.alt || 'Datei wählen', title: o.title || label || o.alt || '' });
   inp.addEventListener('click', (e) => {
     e.stopPropagation();
+    window._lastFilePick = Date.now(); // camera/file dialog open: do not leave the page meanwhile
     if (o.check && o.check() === false) e.preventDefault();
   });
   inp.addEventListener('change', () => {
@@ -1020,13 +1035,23 @@ const PQ = {
       for (const it of [...this.items.values()]) {
         if (!this.items.has(it.id)) continue;
         try {
+          if (it.full && !it.fullId) {
+            // original file from the camera, unchanged
+            const rf = await withTimeout(RT.assets.upload(it.full, { type: it.fullType || it.full.type || 'image/jpeg' }), 300000, 'Upload dauert zu lange');
+            if (!this.items.has(it.id)) { try { await RT.assets.delete(rf.id); } catch { /* ignore */ } continue; }
+            it.fullId = rf.id;
+            const { url, ...persist } = it;
+            await IDB.put('pending', persist);
+          }
           const res = await withTimeout(RT.assets.upload(it.blob, { type: 'image/jpeg' }), 120000, 'Upload dauert zu lange');
           const cur = this.items.get(it.id);
           if (!cur) { // removed meanwhile
             try { await RT.assets.delete(res.id); } catch { /* ignore */ }
+            if (it.fullId) try { await RT.assets.delete(it.fullId); } catch { /* ignore */ }
             continue;
           }
           saveDoc(`projects/${cur.pid}/photos/${cur.id}`, {
+            ...(it.fullId ? { fullAssetId: it.fullId, fullType: it.fullType || 'image/jpeg', fullBytes: it.full?.size || 0 } : {}),
             roomId: cur.roomId, assetId: res.id, caption: cur.caption || '', ts: cur.ts, w: cur.w, h: cur.h, bytes: res.sizeBytes || cur.blob.size,
           });
           await this.remove(cur.id);
@@ -2767,7 +2792,12 @@ class RoomPanel {
     for (const f of files) {
       try {
         const pr = await processPhoto(f);
-        await PQ.add({ id: uid('ph'), pid: S.pid, roomId: this.roomId, blob: pr.blob, caption: '', ts: Date.now(), w: pr.w, h: pr.h });
+        // keep the camera file unchanged as well (full quality for the OneDrive folder)
+        let full = null;
+        if (PLATFORM.keepOriginals && f.size > 0) {
+          try { full = new Blob([await f.arrayBuffer()], { type: f.type || 'image/jpeg' }); } catch (e) { console.warn('original', e); }
+        }
+        await PQ.add({ id: uid('ph'), pid: S.pid, roomId: this.roomId, blob: pr.blob, full, fullType: full ? full.type : null, caption: '', ts: Date.now(), w: pr.w, h: pr.h });
       } catch (e) {
         console.error(e);
         toast('Foto konnte nicht verarbeitet werden.', 'error');
@@ -2794,10 +2824,27 @@ class RoomPanel {
     if (!force && sig === this.photoSig) return;
     this.photoSig = sig;
     this.pGrid.replaceChildren(...list.map((ph, i) => {
-      const cap = h('input', { type: 'text', value: ph.caption || '', placeholder: 'Bildunterschrift …' });
+      // caption: grows when tapped, so it is easy to write into with the stylus
+      const cap = h('textarea', { class: 'cap', rows: 1, value: ph.caption || '', placeholder: 'Bildunterschrift …', 'aria-label': `Bildunterschrift Foto ${i + 1}`, enterkeyhint: 'done' });
       const saver = this.captionSaver(ph);
-      cap.addEventListener('input', () => saver(cap.value));
-      cap.addEventListener('blur', () => saver.flush(cap.value));
+      const capDone = h('div', { class: 'cap-done' },
+        h('span', { class: 'small muted grow' }, 'Mit dem Stift ins Feld schreiben'),
+        btn('Fertig', { icon: 'check', sm: true, kind: 'primary', onClick: () => cap.blur() }));
+      let card;
+      cap.addEventListener('input', () => {
+        if (/[\r\n]/.test(cap.value)) { const pos = cap.selectionStart; cap.value = cap.value.replace(/[\r\n]+/g, ' '); try { cap.setSelectionRange(pos, pos); } catch { /* ignore */ } }
+        saver(cap.value);
+      });
+      cap.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); cap.blur(); } if (e.key === 'Escape') { e.stopPropagation(); cap.blur(); } });
+      cap.addEventListener('focus', () => {
+        card.classList.add('cap-edit');
+        setTimeout(() => { try { capDone.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch { /* ignore */ } }, 220);
+      });
+      cap.addEventListener('blur', () => {
+        saver.flush(cap.value.trim());
+        // keep the field open while the "Fertig" button is being pressed
+        setTimeout(() => { if (document.activeElement !== cap) card.classList.remove('cap-edit'); }, 120);
+      });
       const img = h('img', { src: ph.src, alt: ph.caption || 'Foto ' + (i + 1), loading: 'lazy' });
       img.addEventListener('error', () => {
         if (!img.dataset.retried && ph.assetId && PLATFORM.retryImg(img, ph.assetId)) { img.dataset.retried = '1'; return; }
@@ -2807,20 +2854,26 @@ class RoomPanel {
         type: 'button', class: 'draw-btn' + (ph.origAssetId ? ' on' : ''), title: ph.origAssetId ? 'Zeichnung bearbeiten' : 'In Foto zeichnen', 'aria-label': 'In Foto zeichnen',
         onclick: (e) => { e.stopPropagation(); openPhotoDraw(ph, { onSaved: () => this.renderPhotos(true) }); },
       }, icon('draw'), h('span', null, ph.origAssetId ? 'Bearbeitet' : 'Zeichnen'));
-      return h('div', { class: 'photo' },
+      card = h('div', { class: 'photo' },
         h('div', { class: 'im', onclick: () => openLightbox(this.roomId, i) }, img,
           ph.pending ? h('span', { class: 'pend' }, 'wartet auf Upload') : null,
           h('span', { class: 'num' }, i + 1), drawB),
-        cap);
+        cap, capDone);
+      return card;
     }));
   }
 }
 
 async function deletePhoto(ph) {
-  if (ph.pending) { await PQ.remove(ph.id); return; }
+  if (ph.pending) {
+    const it = PQ.items.get(ph.id);
+    await PQ.remove(ph.id);
+    if (it?.fullId) RT.assets?.delete(it.fullId).catch(() => {});
+    return;
+  }
   removeDoc(`projects/${S.pid}/photos/${ph.id}`);
-  if (ph.assetId) RT.assets?.delete(ph.assetId).catch(() => {});
-  if (ph.origAssetId && ph.origAssetId !== ph.assetId) RT.assets?.delete(ph.origAssetId).catch(() => {});
+  const ids = new Set([ph.assetId, ph.origAssetId, ph.fullAssetId, ph.fullEditedAssetId].filter(Boolean));
+  for (const id of ids) RT.assets?.delete(id).catch(() => {});
 }
 
 function openLightbox(roomId, index) {
@@ -2939,7 +2992,7 @@ function drawStroke(ctx, st, W, H) {
 }
 
 async function loadBitmap(blob) {
-  try { return await createImageBitmap(blob); }
+  try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); }
   catch {
     return new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = URL.createObjectURL(blob); });
   }
@@ -3207,11 +3260,12 @@ async function openPhotoDraw(ph, { onSaved } = {}) {
     if (!changed()) { close(); return; }
     const path = `projects/${S.pid}/photos/${ph.id}`;
     const oldComposite = ph.origAssetId && ph.assetId !== ph.origAssetId ? ph.assetId : null;
+    const oldFull = ph.fullEditedAssetId || null;
     const bb2 = busyBox('Foto wird gespeichert …');
     try {
       if (!strokes.length) {
         // back to the original photo
-        patchDoc(path, { assetId: origId, origAssetId: null, strokes: null, editedAt: null, w: W, h: H });
+        patchDoc(path, { assetId: origId, origAssetId: null, strokes: null, editedAt: null, fullEditedAssetId: null, w: W, h: H });
       } else {
         const out = document.createElement('canvas');
         out.width = W; out.height = H;
@@ -3222,9 +3276,17 @@ async function openPhotoDraw(ph, { onSaved } = {}) {
         if (!blob) throw new Error('Bild konnte nicht erzeugt werden.');
         const res = await withTimeout(RT.assets.upload(blob, { type: 'image/jpeg' }), 120000, 'Speichern dauert zu lange');
         const enc = strokes.map((s0) => ({ t: s0.t, c: s0.c, w: s0.w, p: encodePts(s0.pts) }));
-        patchDoc(path, { assetId: res.id, origAssetId: origId, strokes: enc, editedAt: Date.now(), w: W, h: H, bytes: res.sizeBytes || blob.size });
+        // the same drawing on the camera file in full size (for the OneDrive folder)
+        let fullEd = null;
+        if (ph.fullAssetId) {
+          bb2.set('Foto in Originalgröße wird gespeichert …');
+          try { fullEd = await renderFullEdited(ph.fullAssetId, strokes); }
+          catch (e) { console.warn('full size drawing', e); }
+        }
+        patchDoc(path, { assetId: res.id, origAssetId: origId, strokes: enc, editedAt: Date.now(), w: W, h: H, bytes: res.sizeBytes || blob.size, fullEditedAssetId: fullEd });
       }
       if (oldComposite) RT.assets.delete(oldComposite).catch(() => {});
+      if (oldFull) RT.assets.delete(oldFull).catch(() => {});
       bb2.close();
       close();
       toast(strokes.length ? 'Zeichnung gespeichert.' : 'Originalfoto wiederhergestellt.', 'ok');
@@ -3242,6 +3304,24 @@ async function openPhotoDraw(ph, { onSaved } = {}) {
   releaseBack = backGuard(() => cancel(true));
   layout(false);
   requestAnimationFrame(() => layout(false));
+}
+
+// Draws the strokes onto the full-size camera photo (strokes are stored relative to the image size).
+async function renderFullEdited(fullId, strokes) {
+  const fb = await loadBitmap(await PLATFORM.fetchBlob(fullId));
+  const FW = fb.width || fb.naturalWidth, FH = fb.height || fb.naturalHeight;
+  const sc = Math.min(1, 6000 / Math.max(FW, FH));
+  const c = document.createElement('canvas');
+  c.width = Math.round(FW * sc); c.height = Math.round(FH * sc);
+  const ctx = c.getContext('2d');
+  ctx.drawImage(fb, 0, 0, c.width, c.height);
+  try { fb.close?.(); } catch { /* ignore */ }
+  for (const s0 of strokes) drawStroke(ctx, s0, c.width, c.height);
+  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
+  c.width = c.height = 0;
+  if (!blob) throw new Error('Bild konnte nicht erzeugt werden.');
+  const res = await withTimeout(RT.assets.upload(blob, { type: 'image/jpeg' }), 300000, 'Speichern dauert zu lange');
+  return res.id;
 }
 
 // ======================================================================
@@ -3413,7 +3493,7 @@ function storageCard() {
     box.replaceChildren(
       h('div', null, `${fmtBytes(usage.bytes)} von ${fmtBytes(usage.maxBytes)} belegt · ${usage.files} Dateien${usage.maxFiles ? ' (max. ' + usage.maxFiles + ')' : ''}`),
       h('div', { class: 'meter', style: { marginTop: '8px' } }, h('div', { style: { width: pct.toFixed(1) + '%', background: pct > 85 ? 'var(--danger)' : 'var(--primary)' } })),
-      h('div', { class: 'small', style: { marginTop: '6px' } }, 'Gilt für alle Projekte dieser App. Fotos werden beim Aufnehmen auf ca. 2000 px verkleinert.'));
+      h('div', { class: 'small', style: { marginTop: '6px' } }, 'Gilt für alle Projekte dieser App. ' + (PLATFORM.keepOriginals ? 'Die App arbeitet mit verkleinerten Fotos (ca. 2000 px). Die Kameradatei in Originalqualität wird nach dem Hochladen nach OneDrive auf diesem Gerät wieder freigegeben.' : 'Fotos werden beim Aufnehmen auf ca. 2000 px verkleinert.')));
   }).catch(() => { box.textContent = 'Nicht verfügbar.'; });
   return card;
 }
@@ -4295,6 +4375,8 @@ function renderReportTab(main) {
   App.cleanup.push(onData((k) => { if (k.has('rooms') || k.has('photos')) renderStats(); if (k.has('projects')) renderCover(); }));
 }
 
+function photoFileExt(type) { return ({ 'image/png': '.png', 'image/webp': '.webp', 'image/heic': '.heic', 'image/heif': '.heif' })[String(type || '').toLowerCase()] || '.jpg'; }
+
 // ======================================================================
 // Backup (ZIP export / import)
 // ======================================================================
@@ -4326,12 +4408,17 @@ async function exportBackup() {
         zip.file(path, b);
         files[ph.assetId] = { path, type: 'image/jpeg' };
       } catch { /* skip missing */ }
-      if (ph.origAssetId && ph.origAssetId !== ph.assetId) {
+      // further versions: before drawing, camera file in full quality, drawing in full size
+      for (const [key, suffix] of [['origAssetId', 'vorschau-original'], ['fullAssetId', 'kamera'], ['fullEditedAssetId', 'kamera-bearbeitet']]) {
+        const aid = ph[key];
+        if (!aid || aid === ph.assetId || files[aid]) continue;
         try {
-          const path = `fotos/${ph.id}-original.jpg`;
-          zip.file(path, await PLATFORM.fetchBlob(ph.origAssetId));
-          files[ph.origAssetId] = { path, type: 'image/jpeg' };
-        } catch { /* original missing: the drawing can no longer be changed */ }
+          const b = await PLATFORM.fetchBlob(aid);
+          const type = key === 'fullAssetId' ? (ph.fullType || b.type || 'image/jpeg') : 'image/jpeg';
+          const path = `fotos/${ph.id}-${suffix}${key === 'fullAssetId' ? photoFileExt(type) : '.jpg'}`;
+          zip.file(path, b);
+          files[aid] = { path, type };
+        } catch { /* not available on this device */ }
       }
     }
     for (const pend of [...PQ.items.values()].filter((x) => x.pid === p.id)) {
@@ -4423,6 +4510,11 @@ async function importBackup(files) {
         rest.origAssetId = await up(ph.origAssetId);
         if (!rest.origAssetId) { delete rest.origAssetId; delete rest.strokes; }
       }
+      for (const key of ['fullAssetId', 'fullEditedAssetId']) {
+        if (!rest[key]) continue;
+        rest[key] = PLATFORM.keepOriginals ? await up(ph[key]) : null;
+        if (!rest[key]) delete rest[key];
+      }
       docs.push([`projects/${pid}/photos/${uid('ph')}`, rest]);
     }
     saveDoc('projects/' + pid, { ...proj, updatedAt: Date.now() });
@@ -4477,6 +4569,8 @@ setTimeout(start, 0);
 const CLOUD_FILE = 'begehung-daten.json';
 const DOC_FOLDER = 'Begehungsdokumentation';
 const PHOTO_FOLDER = 'Fotos';
+const PREVIEW_FOLDER = 'Vorschaubilder';
+const photoExt = (type) => ({ 'image/png': '.png', 'image/webp': '.webp', 'image/heic': '.heic', 'image/heif': '.heif', 'image/gif': '.gif' })[String(type || '').toLowerCase()] || '.jpg';
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* ignore */ } };
 function CFG() {
@@ -4500,36 +4594,76 @@ const Auth = {
   save() { lsSet('begehung.auth', this.t ? JSON.stringify(this.t) : null); },
   redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); },
   authority() { return `https://login.microsoftonline.com/${encodeURIComponent(CFG().tenantId)}/oauth2/v2.0`; },
-  async login() {
+  // mode: 'interactive' (account selection), 'renew' (silent first, then interactive if Microsoft needs input),
+  // 'silent' (only silent – on failure the "Neu anmelden" button stays)
+  async login(mode) {
     if (!CFG().clientId) { Cloud.setupDialog(); return; }
     if (!navigator.onLine) { toast('Für die Anmeldung wird eine Internetverbindung benötigt.'); return; }
+    if (!mode) mode = this.t?.username ? 'renew' : 'interactive';
+    const silent = mode !== 'interactive' && !!this.t?.username;
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
     const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
-    lsSet('begehung.pkce', JSON.stringify({ verifier, state, ts: Date.now() }));
+    lsSet('begehung.pkce', JSON.stringify({ verifier, state, ts: Date.now(), silent, fallback: mode === 'renew' }));
     const p = new URLSearchParams({
       client_id: CFG().clientId, response_type: 'code', redirect_uri: this.redirectUri(), response_mode: 'query',
-      scope: SCOPES, state, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account',
+      scope: SCOPES, state, code_challenge: challenge, code_challenge_method: 'S256', prompt: silent ? 'none' : 'select_account',
     });
     if (this.t?.username) p.set('login_hint', this.t.username);
+    if (silent) lsSet('begehung.silentAt', String(Date.now()));
     location.assign(this.authority() + '/authorize?' + p.toString());
+  },
+  // Microsoft limits the sign-in of web apps to 24 hours. With internet, the app renews it on its own:
+  // a short trip to Microsoft and back, without input as long as the Microsoft session is still valid.
+  needsRenew() {
+    if (!this.t?.username || !CFG().clientId) return false;
+    if (this.t.needsLogin) return true;
+    return !!this.t.rtExp && this.t.rtExp - Date.now() < 8 * 3600e3;
+  },
+  safeToLeave() {
+    if (!navigator.onLine || document.visibilityState !== 'visible') return false;
+    if (Date.now() - (+lsGet('begehung.silentAt') || 0) < 10 * 60e3) return false; // tried a moment ago
+    if (Date.now() - (+lsGet('begehung.silentFail') || 0) < 6 * 3600e3) return false; // Microsoft wants input – button instead
+    if (Date.now() - (window._lastFilePick || 0) < 30 * 60e3) return false; // camera / file dialog may still deliver
+    if (document.querySelector('.notes-ed, .draw-ed, .modal-bg, .lightbox')) return false;
+    const a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return false;
+    return true;
+  },
+  autoRenew(reason) {
+    if (!this.needsRenew() || !this.safeToLeave()) return false;
+    console.info('Anmeldung wird erneuert (' + reason + ')');
+    this.login('silent');
+    return true;
   },
   async handleRedirect() {
     const q = new URLSearchParams(location.search);
     if (!q.has('code') && !q.has('error')) return;
     history.replaceState(null, '', this.redirectUri());
-    if (q.has('error')) { setTimeout(() => toast('Anmeldung fehlgeschlagen: ' + (q.get('error_description') || q.get('error')), 'error', 10000), 500); return; }
     let saved = null;
     try { saved = JSON.parse(lsGet('begehung.pkce') || 'null'); } catch { /* ignore */ }
     lsSet('begehung.pkce', null);
+    if (q.has('error')) {
+      if (saved?.silent && saved.state === q.get('state')) {
+        // Microsoft needs input (session expired, MFA due …)
+        if (saved.fallback) { await this.login('interactive'); return 'redirecting'; }
+        lsSet('begehung.silentFail', String(Date.now()));
+        if (this.t) { this.t.needsLogin = true; this.save(); }
+        return;
+      }
+      setTimeout(() => toast('Anmeldung fehlgeschlagen: ' + (q.get('error_description') || q.get('error')), 'error', 10000), 500);
+      return;
+    }
     if (!saved || saved.state !== q.get('state')) { setTimeout(() => toast('Anmeldung abgebrochen – bitte erneut versuchen.', 'error', 7000), 500); return; }
     try {
       await this.token({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: this.redirectUri(), code_verifier: saved.verifier });
       const me = await G.req('GET', '/me?$select=displayName,mail,userPrincipalName');
       this.t.name = me.displayName || ''; this.t.username = me.mail || me.userPrincipalName || '';
       this.t.needsLogin = false;
+      this.t.rtExp = Date.now() + 24 * 3600e3 - 15 * 60e3;
       this.save();
-      Cloud.justLoggedIn = true;
+      lsSet('begehung.silentFail', null);
+      Cloud.justLoggedIn = saved.silent ? 'renewed' : true;
     } catch (e) {
       console.error(e);
       setTimeout(() => toast('Anmeldung fehlgeschlagen: ' + (e.message || e), 'error', 10000), 500);
@@ -4541,7 +4675,7 @@ const Auth = {
     let j = {};
     try { j = await r.json(); } catch { /* ignore */ }
     if (!r.ok) { const e = new Error(j.error_description || j.error || 'Anmeldung fehlgeschlagen'); e.code = j.error; throw e; }
-    this.t = { ...(this.t || {}), access: j.access_token, refresh: j.refresh_token || this.t?.refresh, exp: Date.now() + ((j.expires_in || 3600) - 120) * 1000 };
+    this.t = { ...(this.t || {}), access: j.access_token, refresh: j.refresh_token || this.t?.refresh, exp: Date.now() + ((j.expires_in || 3600) - 120) * 1000, needsLogin: false };
     this.save();
   },
   async accessToken(force) {
@@ -4591,7 +4725,7 @@ const G = {
 // ---------- sync engine ----------
 const Cloud = {
   status: 'idle', lastSync: 0, lastError: '', busyText: '', running: false, again: false, timer: null,
-  states: new Map(), rootId: null, rootUrl: '', deletes: [], wanted: new Set(), justLoggedIn: false,
+  states: new Map(), rootId: null, rootUrl: '', deletes: [], reports: [], wanted: new Set(), justLoggedIn: false,
   configured() { return !!CFG().clientId; },
   signedIn() { return !!Auth.t && !Auth.t.needsLogin; },
   async boot() {
@@ -4605,12 +4739,33 @@ const Cloud = {
       if (m.kind === 'root') { this.rootId = m.id; this.rootUrl = m.webUrl || ''; this.rootFolder = m.folder; }
       if (m.kind === 'deletes') this.deletes = m.list || [];
       if (m.kind === 'last') this.lastSync = m.ts || 0;
+      if (m.kind === 'report' && m.blob) this.reports.push(m);
     }
     if (this.rootFolder && this.rootFolder !== CFG().folder) this.rootId = null;
-    window.addEventListener('online', () => this.schedule(800));
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.schedule(1500); });
-    setInterval(() => { if (document.visibilityState === 'visible') this.schedule(0); }, 120000);
-    if (this.justLoggedIn) { toast(`Mit OneDrive verbunden${Auth.t?.name ? ' als ' + Auth.t.name : ''}. Abgleich startet …`, 'ok', 5000); this.justLoggedIn = false; }
+    this.reports.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    // renew the Microsoft sign-in on its own: at start, when coming back to the app after a while,
+    // when the connection returns or while the app lies unused (never while something is being entered)
+    const idle = (ms) => Date.now() - (window._lastInput || 0) > ms;
+    for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => { window._lastInput = Date.now(); }, true);
+    let hiddenAt = 0;
+    window.addEventListener('online', () => {
+      this.schedule(800);
+      setTimeout(() => { if (idle(2 * 60e3)) Auth.autoRenew('online'); }, 3000);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      if (hiddenAt && Date.now() - hiddenAt > 30 * 60e3) setTimeout(() => Auth.autoRenew('resume'), 2500);
+      this.schedule(1500);
+    });
+    setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (Auth.t?.needsLogin && idle(5 * 60e3) && Auth.autoRenew('idle')) return;
+      this.schedule(0);
+    }, 120000);
+    if (this.justLoggedIn === 'renewed') toast('Anmeldung bei OneDrive erneuert.', 'ok', 3000);
+    else if (this.justLoggedIn) toast(`Mit OneDrive verbunden${Auth.t?.name ? ' als ' + Auth.t.name : ''}. Abgleich startet …`, 'ok', 5000);
+    this.justLoggedIn = false;
+    if (Auth.autoRenew('start')) return;
     this.schedule(300);
   },
   saveMeta(key, val) { return IDB.put('meta', val, key); },
@@ -4630,7 +4785,7 @@ const Cloud = {
     if (s === 'busy') this.busyText = extra;
     this.refreshUI();
   },
-  pendingLocal() { return LocalDB.projectIds().some((pid) => LocalDB.hasDirty('projects/' + pid)); },
+  pendingLocal() { return this.reports.length > 0 || LocalDB.projectIds().some((pid) => LocalDB.hasDirty('projects/' + pid)); },
   badge() {
     if (!this.configured()) return { state: 'local', text: 'Nur auf diesem Gerät', title: 'OneDrive-Abgleich ist noch nicht eingerichtet.' };
     if (!Auth.t) return { state: 'local', text: 'OneDrive: nicht verbunden', title: 'Antippen zum Anmelden' };
@@ -4675,6 +4830,12 @@ const Cloud = {
       url = j['@odata.nextLink'] || null;
     }
     return out;
+  },
+  async ensureSub(parentId, name) {
+    const key = parentId + '/' + name;
+    if ((this.subs ||= new Set()).has(key)) return;
+    try { await this.createFolder(parentId, name, 'fail'); } catch (e) { if (e.status !== 409) throw e; }
+    this.subs.add(key);
   },
   async createFolder(parentId, name, conflict = 'rename') {
     return G.json('POST', `/me/drive/items/${parentId}/children`, { name: safeFile(name), folder: {}, '@microsoft.graph.conflictBehavior': conflict });
@@ -4729,13 +4890,17 @@ const Cloud = {
       // web links for folders
       for (const f of folders) { const st = [...this.states.values()].find((s) => s.folderId === f.id); if (st && st.webUrl !== f.webUrl) { st.webUrl = f.webUrl; await this.saveState(st); } }
       await this.processDeletes();
+      await this.processReports();
       this.lastSync = Date.now();
       await this.saveMeta('last', { kind: 'last', ts: this.lastSync });
       this.setStatus('idle');
     } catch (e) {
       console.warn('Sync', e);
-      if (e.code === 'login_required') this.setStatus('idle');
-      else if (e.network || !navigator.onLine) this.setStatus('offline');
+      if (e.code === 'login_required') {
+        this.setStatus('idle');
+        // sign-in just ran out: renew it right away unless someone is working in the app
+        setTimeout(() => { if (Date.now() - (window._lastInput || 0) > 60e3) Auth.autoRenew('expired'); }, 800);
+      } else if (e.network || !navigator.onLine) this.setStatus('offline');
       else if (e.status === 403) this.setStatus('error', 'Kein Zugriff auf OneDrive (Berechtigung „Files.ReadWrite“ fehlt?)');
       else this.setStatus('error', e.message || String(e));
       if (!e.network && e.code !== 'login_required') this.schedule(60000);
@@ -4769,8 +4934,21 @@ const Cloud = {
       list.sort((a, b) => (a.ts || 0) - (b.ts || 0));
       list.forEach((ph, i) => {
         const nm = `${rn} - Foto ${i + 1}`;
-        if (ph.origAssetId && ph.origAssetId !== ph.assetId) {
-          // drawn on: keep the original and put the marked-up version next to it
+        const drawn = ph.origAssetId && ph.origAssetId !== ph.assetId;
+        if (ph.fullAssetId) {
+          // Fotos folder: the camera file in full quality (and the marked-up version in full size).
+          // The smaller working copies the app shows live in the project folder under "Vorschaubilder".
+          const pv = PREVIEW_FOLDER + '/' + nm;
+          refs.set(ph.fullAssetId, { dest: 'photos', name: nm + photoExt(ph.fullType), order: 3, lazy: true });
+          if (drawn) {
+            refs.set(ph.origAssetId, { dest: 'root', name: pv + '.jpg', order: 2 });
+            if (ph.fullEditedAssetId) {
+              refs.set(ph.assetId, { dest: 'root', name: pv + ' (bearbeitet).jpg', order: 2 });
+              refs.set(ph.fullEditedAssetId, { dest: 'photos', name: nm + ' (bearbeitet).jpg', order: 3, lazy: true });
+            } else refs.set(ph.assetId, { dest: 'photos', name: nm + ' (bearbeitet).jpg', order: 2 });
+          } else refs.set(ph.assetId, { dest: 'root', name: pv + '.jpg', order: 2 });
+        } else if (drawn) {
+          // older photos (no camera file kept): original and marked-up version side by side
           refs.set(ph.origAssetId, { dest: 'photos', name: nm + '.jpg', order: 2 });
           refs.set(ph.assetId, { dest: 'photos', name: nm + ' (bearbeitet).jpg', order: 2 });
         } else refs.set(ph.assetId, { dest: 'photos', name: nm + '.jpg', order: 2 });
@@ -4872,6 +5050,7 @@ const Cloud = {
         const rec = await Blobs.get(id);
         if (!rec) continue;
         this.setStatus('busy', `Lade ${ref.name.split('/').pop()} hoch …`);
+        if (ref.dest === 'root' && ref.name.includes('/')) await this.ensureSub(st.folderId, ref.name.slice(0, ref.name.lastIndexOf('/')));
         let item;
         try { item = await this.uploadFile(ref.dest === 'photos' ? st.photoId : st.folderId, ref.name, rec.blob, 'rename'); }
         catch (e) {
@@ -4883,6 +5062,8 @@ const Cloud = {
         st.blobs[id] = { odId: item.id, name: item.name, type: rec.type, size: rec.size };
         needUpload = true;
         await this.saveState(st);
+        // full-size camera files are only needed in OneDrive – free the space on this device
+        if (ref.lazy) await IDB.del('blobs', id);
       }
       const blobs = {};
       for (const id of refs.keys()) if (st.blobs[id]) blobs[id] = st.blobs[id];
@@ -4953,7 +5134,7 @@ const Cloud = {
       const jobs = [];
       for (const st of this.states.values()) {
         const refs = this.blobRefs(this.localDocs('projects/' + st.pid));
-        for (const [id, ref] of refs) if (st.blobs?.[id]?.odId) jobs.push([ref.order, id]);
+        for (const [id, ref] of refs) if (!ref.lazy && st.blobs?.[id]?.odId) jobs.push([ref.order, id]);
       }
       jobs.sort((a, b) => a[0] - b[0]);
       let n = 0;
@@ -4980,16 +5161,49 @@ const Cloud = {
       await this.saveMeta('deletes', { kind: 'deletes', list: this.deletes });
     }
   },
+  // Reports go into the documentation folder. Without connection they wait on this device
+  // and are uploaded with the next sync. Returns true (uploaded), 'queued' or false (no OneDrive).
   async uploadReport(pid, filename, blob) {
+    if (!this.configured()) return false;
     const st = this.states.get(pid);
-    if (!st?.folderId || !this.signedIn() || !navigator.onLine) return false;
-    try {
-      const proj = LocalDB.raw('projects/' + pid)?.data;
-      await this.ensureDocFolders(st, proj, proj?.name || '');
-      await this.uploadFile(st.docId, safeFile(filename), blob, 'replace');
-      return true;
+    if (st?.folderId && this.signedIn() && navigator.onLine && !this.running) {
+      try { await this.putReport(st, pid, filename, blob); return true; }
+      catch (e) { console.warn('report upload', e); }
     }
-    catch (e) { console.warn(e); toast('Bericht wurde lokal gespeichert, aber nicht in OneDrive: ' + (e.message || e), 'error', 6000); return false; }
+    await this.queueReport(pid, filename, blob);
+    this.schedule(1500);
+    return 'queued';
+  },
+  async putReport(st, pid, filename, blob) {
+    const proj = LocalDB.raw('projects/' + pid)?.data;
+    await this.ensureDocFolders(st, proj, proj?.name || '');
+    await this.uploadFile(st.docId, safeFile(filename), blob, 'replace');
+  },
+  async queueReport(pid, filename, blob) {
+    const rec = { kind: 'report', id: uid('rep'), pid, filename, blob, type: blob.type, ts: Date.now() };
+    // the same file name again replaces the waiting one (same as in OneDrive)
+    for (const old of this.reports.filter((r) => r.pid === pid && r.filename === filename)) await IDB.del('meta', 'report:' + old.id);
+    this.reports = this.reports.filter((r) => !(r.pid === pid && r.filename === filename));
+    this.reports.push(rec);
+    await this.saveMeta('report:' + rec.id, rec);
+    this.refreshUI();
+  },
+  async processReports() {
+    for (const rec of [...this.reports]) {
+      const proj = LocalDB.raw('projects/' + rec.pid);
+      const st = this.states.get(rec.pid);
+      if (!proj || proj.del) { await this.dropReport(rec); continue; } // project deleted
+      if (!st?.folderId) continue; // project not in OneDrive yet
+      this.setStatus('busy', `Lade Bericht ${rec.filename} hoch …`);
+      try { await this.putReport(st, rec.pid, rec.filename, rec.blob); }
+      catch (e) { if (e.network || !navigator.onLine || e.status === 401) throw e; console.warn('report', e); continue; } // keep it for the next sync
+      await this.dropReport(rec);
+      toast('Bericht nachträglich in OneDrive gespeichert: ' + rec.filename, 'ok', 6000);
+    }
+  },
+  async dropReport(rec) {
+    this.reports = this.reports.filter((r) => r.id !== rec.id);
+    await IDB.del('meta', 'report:' + rec.id);
   },
   // ---------- UI ----------
   docLocation(p, st) {
